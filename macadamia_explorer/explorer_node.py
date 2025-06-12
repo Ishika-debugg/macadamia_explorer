@@ -35,7 +35,7 @@ class MacadamiaExplorer(Node):
 
     def scan_callback(self, msg):
         self.scan = msg
-        self.get_logger().debug("LaserScan received")
+        self.get_logger().debug("Laser scan received")
 
     def image_callback(self, msg):
         if self.scan is None:
@@ -47,12 +47,11 @@ class MacadamiaExplorer(Node):
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         self.get_logger().debug(f"Contours found: {len(contours)}")
+
         if not contours:
             return
-
         c = max(contours, key=cv2.contourArea)
         if cv2.contourArea(c) < 200:
-            self.get_logger().debug("Contour too small, ignored")
             return
 
         x, y, w, h = cv2.boundingRect(c)
@@ -61,16 +60,15 @@ class MacadamiaExplorer(Node):
         angle = self.scan.angle_min + (cx / image.shape[1]) * (self.scan.angle_max - self.scan.angle_min)
         index = int((angle - self.scan.angle_min) / self.scan.angle_increment)
         if index < 0 or index >= len(self.scan.ranges):
-            self.get_logger().debug("Index out of range")
             return
 
         dist = self.scan.ranges[index]
         if not np.isfinite(dist):
-            self.get_logger().debug("Distance not finite")
             return
 
         self.get_logger().debug(f"Nut candidate at distance: {dist:.2f} m")
-        if dist > 0.3:
+
+        if dist > 0.3:  # react only to very close nuts
             return
 
         lx = dist * np.cos(angle)
@@ -83,7 +81,10 @@ class MacadamiaExplorer(Node):
         point_lidar.point.z = 0.0
 
         try:
-            tf = self.tf_buffer.lookup_transform('map', point_lidar.header.frame_id, rclpy.time.Time())
+            tf = self.tf_buffer.lookup_transform(
+                'map', point_lidar.header.frame_id,
+                rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=0.5)
+            )
             point_map = tf2_geometry_msgs.do_transform_point(point_lidar, tf)
         except Exception as e:
             self.get_logger().warn(f"TF failed: {e}")
@@ -137,27 +138,26 @@ class MacadamiaExplorer(Node):
 
         ranges = np.array(self.scan.ranges)
         mid_idx = len(ranges) // 2
-
         side_window = 5
-        side_offset = 50
+        offset = 60
 
-        left_idx = mid_idx - side_offset
-        right_idx = mid_idx + side_offset
+        left_idx = mid_idx - offset
+        right_idx = mid_idx + offset
+
+        twist = Twist()
+        twist.linear.x = 0.15  # Forward motion
 
         left_range = np.nanmean(ranges[left_idx - side_window:left_idx + side_window])
         right_range = np.nanmean(ranges[right_idx - side_window:right_idx + side_window])
 
-        self.get_logger().debug(f"Left range: {left_range:.2f}, Right range: {right_range:.2f}")
+        self.get_logger().debug(f"Left: {left_range:.2f} m, Right: {right_range:.2f} m")
 
-        twist = Twist()
-        twist.linear.x = 0.2
         if np.isfinite(left_range) and np.isfinite(right_range):
             diff = right_range - left_range
             twist.angular.z = -diff * 0.5
-            self.get_logger().debug(f"Angular correction: {-diff * 0.5:.2f}")
+            self.get_logger().debug(f"Turning with angular.z = {twist.angular.z:.2f}")
 
         self.cmd_vel_pub.publish(twist)
-
 
 def main(args=None):
     rclpy.init(args=args)
