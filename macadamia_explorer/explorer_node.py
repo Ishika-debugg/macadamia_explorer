@@ -35,6 +35,7 @@ class MacadamiaExplorer(Node):
 
     def scan_callback(self, msg):
         self.scan = msg
+        self.get_logger().debug("LaserScan received")
 
     def image_callback(self, msg):
         if self.scan is None:
@@ -45,23 +46,31 @@ class MacadamiaExplorer(Node):
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.get_logger().debug(f"Contours found: {len(contours)}")
         if not contours:
             return
+
         c = max(contours, key=cv2.contourArea)
         if cv2.contourArea(c) < 200:
+            self.get_logger().debug("Contour too small, ignored")
             return
+
         x, y, w, h = cv2.boundingRect(c)
         cx = x + w // 2
 
         angle = self.scan.angle_min + (cx / image.shape[1]) * (self.scan.angle_max - self.scan.angle_min)
         index = int((angle - self.scan.angle_min) / self.scan.angle_increment)
         if index < 0 or index >= len(self.scan.ranges):
-            return
-        dist = self.scan.ranges[index]
-        if not np.isfinite(dist):
+            self.get_logger().debug("Index out of range")
             return
 
-        if dist > 0.3:  # lowered threshold to only respond to close nuts
+        dist = self.scan.ranges[index]
+        if not np.isfinite(dist):
+            self.get_logger().debug("Distance not finite")
+            return
+
+        self.get_logger().debug(f"Nut candidate at distance: {dist:.2f} m")
+        if dist > 0.3:
             return
 
         lx = dist * np.cos(angle)
@@ -130,21 +139,22 @@ class MacadamiaExplorer(Node):
         mid_idx = len(ranges) // 2
 
         side_window = 5
-        side_offset = 60  # smaller offset closer to 60 degrees
+        side_offset = 50
 
         left_idx = mid_idx - side_offset
         right_idx = mid_idx + side_offset
 
-        # Remove front obstacle suppression to allow pass-through between trees
-        twist = Twist()
-        twist.linear.x = 0.15
-
         left_range = np.nanmean(ranges[left_idx - side_window:left_idx + side_window])
         right_range = np.nanmean(ranges[right_idx - side_window:right_idx + side_window])
 
+        self.get_logger().debug(f"Left range: {left_range:.2f}, Right range: {right_range:.2f}")
+
+        twist = Twist()
+        twist.linear.x = 0.2
         if np.isfinite(left_range) and np.isfinite(right_range):
             diff = right_range - left_range
-            twist.angular.z = -diff * 0.5  # reduce turn aggressiveness for tree rows
+            twist.angular.z = -diff * 0.5
+            self.get_logger().debug(f"Angular correction: {-diff * 0.5:.2f}")
 
         self.cmd_vel_pub.publish(twist)
 
