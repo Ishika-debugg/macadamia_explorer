@@ -61,6 +61,9 @@ class MacadamiaExplorer(Node):
         if not np.isfinite(dist):
             return
 
+        if dist > 0.6:
+            return  # Skip distant nuts
+
         lx = dist * np.cos(angle)
         ly = dist * np.sin(angle)
         point_lidar = PointStamped()
@@ -85,6 +88,7 @@ class MacadamiaExplorer(Node):
 
         self.detected_points.append(point_map)
         self.publish_marker(point_map)
+        self.get_logger().info(f"Nut #{len(self.detected_points)} detected and recorded.")
         self.avoid_obstacle()
 
     def publish_marker(self, pt):
@@ -107,16 +111,16 @@ class MacadamiaExplorer(Node):
     def avoid_obstacle(self):
         self.row_following_active = False
         twist = Twist()
+        twist.linear.x = 0.0
         twist.angular.z = 0.5
-        start = self.get_clock().now().seconds_nanoseconds()[0]
-        while rclpy.ok():
-            now = self.get_clock().now().seconds_nanoseconds()[0]
-            if now - start > 2:
-                break
-            self.cmd_vel_pub.publish(twist)
-            rclpy.spin_once(self, timeout_sec=0.1)
+        self.cmd_vel_pub.publish(twist)
+        self.get_logger().info("Avoiding nut: turning left for 1.5 seconds")
+        self.create_timer(1.5, self.resume_navigation, callback_group=None)
+
+    def resume_navigation(self):
         self.cmd_vel_pub.publish(Twist())
         self.row_following_active = True
+        self.get_logger().info("Resumed row following.")
 
     def row_follow_logic(self):
         if not self.row_following_active or self.scan is None:
@@ -135,6 +139,7 @@ class MacadamiaExplorer(Node):
             twist.angular.z = -diff * 0.5
 
         self.cmd_vel_pub.publish(twist)
+
 
 def main(args=None):
     rclpy.init(args=args)
