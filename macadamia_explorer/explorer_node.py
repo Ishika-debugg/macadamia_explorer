@@ -61,8 +61,8 @@ class MacadamiaExplorer(Node):
         if not np.isfinite(dist):
             return
 
-        if dist > 0.6:
-            return  # Skip distant nuts
+        if dist > 0.3:  # lowered threshold to only respond to close nuts
+            return
 
         lx = dist * np.cos(angle)
         ly = dist * np.sin(angle)
@@ -130,28 +130,23 @@ class MacadamiaExplorer(Node):
         mid_idx = len(ranges) // 2
 
         side_window = 5
-        side_offset = 90  # ~90 degrees left/right
+        side_offset = 60  # smaller offset closer to 60 degrees
 
         left_idx = mid_idx - side_offset
         right_idx = mid_idx + side_offset
 
-        # Front-facing check to avoid crashing into a tree trunk directly ahead
-        front_clear = np.nanmin(ranges[mid_idx - 5:mid_idx + 5]) > 0.4
-
+        # Remove front obstacle suppression to allow pass-through between trees
         twist = Twist()
-
-        if front_clear:
-            twist.linear.x = 0.15
+        twist.linear.x = 0.15
 
         left_range = np.nanmean(ranges[left_idx - side_window:left_idx + side_window])
         right_range = np.nanmean(ranges[right_idx - side_window:right_idx + side_window])
 
         if np.isfinite(left_range) and np.isfinite(right_range):
             diff = right_range - left_range
-            twist.angular.z = -diff * 0.7  # stronger centering
+            twist.angular.z = -diff * 0.5  # reduce turn aggressiveness for tree rows
 
         self.cmd_vel_pub.publish(twist)
-
 
 
 def main(args=None):
