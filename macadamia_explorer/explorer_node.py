@@ -128,17 +128,30 @@ class MacadamiaExplorer(Node):
 
         ranges = np.array(self.scan.ranges)
         mid_idx = len(ranges) // 2
-        window = 20
-        left_range = np.nanmean(ranges[mid_idx - window - 30:mid_idx - 30])
-        right_range = np.nanmean(ranges[mid_idx + 30:mid_idx + 30 + window])
+
+        side_window = 5
+        side_offset = 90  # ~90 degrees left/right
+
+        left_idx = mid_idx - side_offset
+        right_idx = mid_idx + side_offset
+
+        # Front-facing check to avoid crashing into a tree trunk directly ahead
+        front_clear = np.nanmin(ranges[mid_idx - 5:mid_idx + 5]) > 0.4
 
         twist = Twist()
-        twist.linear.x = 0.15
+
+        if front_clear:
+            twist.linear.x = 0.15
+
+        left_range = np.nanmean(ranges[left_idx - side_window:left_idx + side_window])
+        right_range = np.nanmean(ranges[right_idx - side_window:right_idx + side_window])
+
         if np.isfinite(left_range) and np.isfinite(right_range):
             diff = right_range - left_range
-            twist.angular.z = -diff * 0.5
+            twist.angular.z = -diff * 0.7  # stronger centering
 
         self.cmd_vel_pub.publish(twist)
+
 
 
 def main(args=None):
